@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Incident Follow-Up — EMS Staff</title>
+<style>
+  :root {
+    --purple: #490e6f;
+    --purple-mid: #6b1fa8;
+    --purple-light: #f3edf8;
+    --purple-dark: #2d0744;
+    --gold: #ffe100;
+    --white: #ffffff;
+    --gray-50: #fafafa;
+    --gray-100: #f4f4f5;
+    --gray-200: #e4e4e7;
+    --gray-400: #a1a1aa;
+    --gray-600: #52525b;
+    --gray-800: #27272a;
+    --green: #16a34a;
+    --green-light: #dcfce7;
+    --amber: #d97706;
+    --amber-light: #fef3c7;
+    --red: #dc2626;
+    --red-light: #fee2e2;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,.1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--gray-100); color: var(--gray-800); min-height: 100vh; }
+
+  /* LOGIN */
+  .login-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--purple); padding: 32px 24px; }
+  .login-screen.hidden { display: none; }
+  .login-logo { font-size: 48px; margin-bottom: 16px; }
+  .login-screen h1 { font-size: 22px; font-weight: 800; color: var(--white); margin-bottom: 4px; }
+  .login-screen p { font-size: 14px; color: rgba(255,255,255,.5); margin-bottom: 32px; }
+  .login-box { background: var(--white); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 340px; box-shadow: 0 8px 32px rgba(0,0,0,.3); }
+  .login-box label { display: block; font-size: 12px; font-weight: 700; color: var(--gray-600); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .login-box input { width: 100%; border: 1.5px solid var(--gray-200); border-radius: var(--radius-sm); font-size: 16px; padding: 11px 14px; outline: none; font-family: inherit; margin-bottom: 12px; -webkit-appearance: none; transition: border-color .15s; }
+  .login-box input:focus { border-color: var(--purple-mid); }
+  .btn-login { width: 100%; background: var(--purple); color: var(--white); border: none; border-radius: var(--radius-sm); padding: 13px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .login-error { font-size: 13px; color: var(--red); margin-top: 10px; text-align: center; display: none; }
+  .login-error.visible { display: block; }
+
+  /* APP */
+  .app { display: none; }
+  .app.visible { display: block; }
+
+  /* HEADER */
+  .header { background: var(--purple); padding: 14px 16px; position: sticky; top: 0; z-index: 20; box-shadow: 0 2px 8px rgba(73,14,111,.4); }
+  .header-inner { max-width: 700px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .header-icon { width: 32px; height: 32px; background: var(--gold); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .header h1 { font-size: 16px; font-weight: 800; color: var(--white); }
+  .header-sub { font-size: 11px; color: rgba(255,255,255,.55); margin-top: 1px; }
+  .btn-refresh { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 7px 12px; font-size: 13px; color: var(--white); cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+
+  /* STATS */
+  .stats-bar { background: var(--purple-dark); padding: 10px 16px; }
+  .stats-inner { max-width: 700px; margin: 0 auto; display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; }
+  .stats-inner::-webkit-scrollbar { display: none; }
+  .stat-pill { display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,.08); border-radius: 20px; padding: 5px 12px; flex-shrink: 0; white-space: nowrap; }
+  .stat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .stat-dot.open { background: var(--red); }
+  .stat-dot.progress { background: var(--amber); }
+  .stat-dot.closed { background: var(--green); }
+  .stat-pill span { font-size: 12px; color: rgba(255,255,255,.7); }
+  .stat-pill strong { font-size: 13px; color: var(--white); font-weight: 700; }
+
+  /* FILTERS */
+  .filter-bar { padding: 12px 16px 0; max-width: 700px; margin: 0 auto; }
+  .filter-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 12px; }
+  .filter-chips::-webkit-scrollbar { display: none; }
+  .filter-chip { border: 1.5px solid var(--gray-200); border-radius: 20px; padding: 6px 14px; font-size: 13px; font-weight: 600; color: var(--gray-600); background: var(--white); cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: all .15s; }
+  .filter-chip.active { background: var(--purple); border-color: var(--purple); color: var(--white); }
+
+  /* SEARCH */
+  .search-bar { padding: 0 16px 12px; max-width: 700px; margin: 0 auto; }
+  .search-input { width: 100%; border: 1.5px solid var(--gray-200); border-radius: var(--radius-sm); font-size: 15px; padding: 10px 14px; outline: none; font-family: inherit; background: var(--white); transition: border-color .15s; }
+  .search-input:focus { border-color: var(--purple-mid); }
+
+  /* MAIN */
+  .main { max-width: 700px; margin: 0 auto; padding: 0 16px 32px; }
+
+  /* REPORT CARDS */
+  .report-card { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 10px; overflow: hidden; border-left: 4px solid transparent; }
+  .report-card.status-open { border-left-color: var(--red); }
+  .report-card.status-progress { border-left-color: var(--amber); }
+  .report-card.status-closed { border-left-color: var(--green); opacity: .8; }
+
+  .card-header { padding: 14px 16px 12px; cursor: pointer; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .card-left { flex: 1; min-width: 0; }
+  .card-name { font-size: 16px; font-weight: 700; color: var(--gray-800); margin-bottom: 3px; }
+  .card-meta { font-size: 12px; color: var(--gray-400); display: flex; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 5px; }
+  .card-preview { font-size: 13px; color: var(--gray-600); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+  .status-badge { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 10px; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+  .status-badge.open { background: var(--red-light); color: var(--red); }
+  .status-badge.progress { background: var(--amber-light); color: var(--amber); }
+  .status-badge.closed { background: var(--green-light); color: var(--green); }
+  .chevron { font-size: 11px; color: var(--gray-400); transition: transform .2s; }
+  .report-card.expanded .chevron { transform: rotate(180deg); }
+
+  /* EXPANDED BODY */
+  .card-body { display: none; border-top: 1px solid var(--gray-100); padding: 16px; }
+  .report-card.expanded .card-body { display: block; }
+
+  .detail-section { margin-bottom: 14px; }
+  .detail-label { font-size: 11px; font-weight: 700; color: var(--purple); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 5px; }
+  .detail-text { font-size: 14px; color: var(--gray-800); line-height: 1.6; background: var(--gray-50); border-radius: var(--radius-sm); padding: 10px 12px; border: 1px solid var(--gray-100); }
+  .detail-text.empty { color: var(--gray-400); font-style: italic; }
+
+  /* FOLLOW-UP PANEL */
+  .followup-panel { background: var(--purple-light); border-radius: var(--radius-sm); padding: 14px; border: 1px solid rgba(73,14,111,.1); margin-top: 4px; }
+  .followup-title { font-size: 12px; font-weight: 700; color: var(--purple); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+  .followup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+  .followup-field { display: flex; flex-direction: column; gap: 4px; }
+  .followup-field.full { grid-column: 1 / -1; }
+  .followup-field label { font-size: 11px; font-weight: 700; color: var(--gray-600); text-transform: uppercase; letter-spacing: .4px; }
+  .followup-field select, .followup-field input, .followup-field textarea {
+    border: 1.5px solid var(--gray-200); border-radius: var(--radius-sm); font-size: 14px; padding: 8px 10px;
+    outline: none; font-family: inherit; background: var(--white); color: var(--gray-800); transition: border-color .15s; -webkit-appearance: none;
+  }
+  .followup-field select:focus, .followup-field input:focus, .followup-field textarea:focus { border-color: var(--purple-mid); }
+  .followup-field select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2352525b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; cursor: pointer;
+  }
+  .followup-field textarea { resize: none; min-height: 64px; line-height: 1.5; }
+
+  .followup-btns { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-save { flex: 1; background: var(--purple); color: var(--white); border: none; border-radius: var(--radius-sm); padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s; }
+  .btn-save:active { opacity: .8; }
+  .btn-close { background: var(--green); color: var(--white); border: none; border-radius: var(--radius-sm); padding: 11px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .save-toast { font-size: 12px; color: var(--green); font-weight: 600; text-align: center; margin-top: 8px; display: none; }
+  .save-toast.visible { display: block; }
+  .save-error { font-size: 12px; color: var(--red); text-align: center; margin-top: 8px; display: none; }
+  .save-error.visible { display: block; }
+
+  /* STATES */
+  .empty-state { text-align: center; padding: 60px 24px; color: var(--gray-400); }
+  .empty-state div { font-size: 40px; margin-bottom: 12px; }
+  .loading-state { text-align: center; padding: 48px 24px; color: var(--gray-400); font-size: 14px; }
+  .loading-spin { width: 28px; height: 28px; border: 3px solid var(--gray-200); border-top-color: var(--purple); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* SETUP NOTICE */
+  .setup-notice { background: var(--amber-light); border: 1.5px solid var(--amber); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 12px; font-size: 13px; color: #92400e; line-height: 1.5; }
+  .setup-notice strong { display: block; margin-bottom: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-logo">📋</div>
+  <h1>Incident Follow-Up</h1>
+  <p>EMS Staff Dashboard</p>
+  <div class="login-box">
+    <label>Staff Password</label>
+    <input type="password" id="passwordInput" placeholder="Enter password" onkeydown="if(event.key==='Enter')login()">
+    <button class="btn-login" onclick="login()">Sign In</button>
+    <div class="login-error" id="loginError">Incorrect password. Try again.</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app">
+
+  <div class="header">
+    <div class="header-inner">
+      <div class="header-left">
+        <div class="header-icon">📋</div>
+        <div>
+          <h1>Incident Follow-Up</h1>
+          <div class="header-sub">EMS · Staff Dashboard</div>
+        </div>
+      </div>
+      <button class="btn-refresh" onclick="loadReports()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stats-inner">
+      <div class="stat-pill"><div class="stat-dot open"></div><span>Open: </span><strong id="statOpen">—</strong></div>
+      <div class="stat-pill"><div class="stat-dot progress"></div><span>In Progress: </span><strong id="statProgress">—</strong></div>
+      <div class="stat-pill"><div class="stat-dot closed"></div><span>Closed: </span><strong id="statClosed">—</strong></div>
+      <div class="stat-pill"><span>Total: </span><strong id="statTotal">—</strong></div>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-chips">
+      <button class="filter-chip active" onclick="setFilter(this,'open')">🔴 Open</button>
+      <button class="filter-chip" onclick="setFilter(this,'progress')">🟡 In Progress</button>
+      <button class="filter-chip" onclick="setFilter(this,'closed')">🟢 Closed</button>
+      <button class="filter-chip" onclick="setFilter(this,'all')">All</button>
+    </div>
+  </div>
+
+  <div class="search-bar">
+    <input class="search-input" type="text" id="searchInput" placeholder="Search by name, grade, or keyword…" oninput="renderReports()">
+  </div>
+
+  <div class="main" id="reportsList"></div>
+
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────
+const STAFF_PW    = 'togetherweclimb';
+const SHEET_ID    = '1VUDvmkqG6F7-1PQWWc3_FWQxGz6bj_tBRdi4UuAWqP0';
+const SHEET_NAME  = 'Form Responses 1';
+// Apps Script Web App URL — paste after deploying (see setup note below)
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbymTPWbhuu2-e6moza2mFuCudUULunHhKXDq6-ftLtz-7jndNQze5Ra3I1wEJLOWsNftw/exec';
+
+// ── STATE ────────────────────────────────────────────────────────────
+let allReports  = [];
+let followUpData = {}; // keyed by timestamp, stored in localStorage
+let currentFilter = 'open';
+let expandedId    = null;
+
+// ── AUTH ─────────────────────────────────────────────────────────────
+function login() {
+  if (document.getElementById('passwordInput').value === STAFF_PW) {
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('app').classList.add('visible');
+    sessionStorage.setItem('ems_followup_auth', '1');
+    loadReports();
+  } else {
+    document.getElementById('loginError').classList.add('visible');
+    document.getElementById('passwordInput').value = '';
+  }
+}
+if (sessionStorage.getItem('ems_followup_auth') === '1') {
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('app').classList.add('visible');
+  loadReports();
+}
+
+// ── LOAD FOLLOW-UP DATA FROM LOCALSTORAGE ───────────────────────────
+function loadLocalFollowUps() {
+  try { followUpData = JSON.parse(localStorage.getItem('ems_followups') || '{}'); }
+  catch(e) { followUpData = {}; }
+}
+function saveLocalFollowUps() {
+  localStorage.setItem('ems_followups', JSON.stringify(followUpData));
+}
+
+// ── LOAD FROM GOOGLE SHEET (published CSV) ───────────────────────────
+async function loadReports() {
+  document.getElementById('reportsList').innerHTML =
+    '<div class="loading-state"><div class="loading-spin"></div>Loading reports…</div>';
+
+  loadLocalFollowUps();
+
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Sheet not accessible');
+    const csv  = await res.text();
+    allReports = parseCSV(csv);
+    updateStats();
+    renderReports();
+  } catch(err) {
+    document.getElementById('reportsList').innerHTML =
+      '<div class="empty-state"><div>⚠️</div><p>Could not load sheet.<br><small>Make sure the sheet is published: File → Share → Publish to web → Sheet 1 → CSV → Publish</small></p></div>';
+  }
+}
+
+// ── CSV PARSER ────────────────────────────────────────────────────────
+function parseCSV(csv) {
+  const lines = csv.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = parseCSVLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseCSVLine(lines[i]);
+    if (!vals.length || vals.every(v => !v.trim())) continue;
+    const row = {};
+    headers.forEach((h, idx) => { row[h.trim().replace(/^"|"$/g,'')] = (vals[idx] || '').trim().replace(/^"|"$/g,''); });
+    rows.push(row);
+  }
+  // Newest first
+  return rows.reverse();
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else { inQ = !inQ; } }
+    else if (ch === ',' && !inQ) { result.push(cur); cur = ''; }
+    else { cur += ch; }
+  }
+  result.push(cur);
+  return result;
+}
+
+// ── STATUS HELPERS ────────────────────────────────────────────────────
+function getStatus(ts) { return (followUpData[ts] && followUpData[ts].status) || 'open'; }
+
+function updateStats() {
+  const statuses = allReports.map(r => getStatus(r['Timestamp']));
+  document.getElementById('statOpen').textContent     = statuses.filter(s => s === 'open').length;
+  document.getElementById('statProgress').textContent = statuses.filter(s => s === 'progress').length;
+  document.getElementById('statClosed').textContent   = statuses.filter(s => s === 'closed').length;
+  document.getElementById('statTotal').textContent    = allReports.length;
+}
+
+// ── FILTER / SEARCH ───────────────────────────────────────────────────
+function setFilter(btn, filter) {
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  currentFilter = filter;
+  expandedId = null;
+  renderReports();
+}
+
+function renderReports() {
+  const search = (document.getElementById('searchInput').value || '').toLowerCase();
+
+  let filtered = allReports.filter(r => {
+    const status = getStatus(r['Timestamp']);
+    const matchFilter = currentFilter === 'all' || status === currentFilter;
+    if (!matchFilter) return false;
+    if (!search) return true;
+    const blob = Object.values(r).join(' ').toLowerCase();
+    return blob.includes(search);
+  });
+
+  const list = document.getElementById('reportsList');
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div>' +
+      (currentFilter === 'open' ? '✅' : '📋') + '</div><p>' +
+      (currentFilter === 'open' ? 'No open reports right now.' : 'No reports in this category.') +
+      '</p></div>';
+    updateStats();
+    return;
+  }
+
+  list.innerHTML = filtered.map(r => renderCard(r)).join('');
+  updateStats();
+}
+
+// ── RENDER CARD ────────────────────────────────────────────────────────
+function renderCard(r) {
+  const ts       = r['Timestamp'] || '';
+  const fu       = followUpData[ts] || {};
+  const status   = fu.status || 'open';
+  const isExp    = expandedId === ts;
+  const name     = (r['First Name'] || '') + ' ' + (r['Last Name'] || '');
+  const grade    = r['Grade'] || '';
+  const homeroom = r['Homeroom Teacher'] || '';
+  const sid      = r['800 Number (Student ID)'] || '';
+  const date     = r['Timestamp'] ? new Date(r['Timestamp']).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+  const time     = r['Timestamp'] ? new Date(r['Timestamp']).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) : '';
+  const preview  = (r['What happened?'] || '').slice(0, 110) + ((r['What happened?']||'').length > 110 ? '…' : '');
+  const statusLabel = {open:'Open',progress:'In Progress',closed:'Closed'}[status] || 'Open';
+
+  const savedAdult   = esc(fu.adult   || '');
+  const savedDate    = esc(fu.meetDate|| '');
+  const savedNotes   = esc(fu.notes   || '');
+  const savedPS      = fu.ps      || '';
+  const savedSRO     = fu.sro     || '';
+  const savedParent  = fu.parent  || '';
+  const savedContact = fu.contact || '';
+  const savedTeach   = fu.teachers|| '';
+
+  return `<div class="report-card status-${status}${isExp?' expanded':''}" id="card-${esc(ts)}">
+    <div class="card-header" onclick="toggleCard('${esc(ts)}')">
+      <div class="card-left">
+        <div class="card-name">${esc(name)}</div>
+        <div class="card-meta">
+          <span>${esc(grade)}</span>
+          ${homeroom ? `<span>· ${esc(homeroom)}</span>` : ''}
+          ${sid ? `<span>· 800# ${esc(sid)}</span>` : ''}
+          <span>· ${date} at ${time}</span>
+          ${fu.assignedTo ? `<span>· → ${esc(fu.assignedTo)}</span>` : ''}
+        </div>
+        <div class="card-preview">${esc(preview)}</div>
+      </div>
+      <div class="card-right">
+        <span class="status-badge ${status}">${statusLabel}</span>
+        <span class="chevron">▾</span>
+      </div>
+    </div>
+    ${isExp ? `<div class="card-body">
+      ${detailSection('Where', r['Where did it happen?'])}
+      ${detailSection('When', r['When did it happen?'])}
+      ${detailSection('Who Was Involved', r['Who was involved?'])}
+      ${detailSection('Witnesses', r['Who witnessed it?'])}
+      ${detailSection('Evidence', r['Is there any evidence?'])}
+      ${detailSection('What Happened', r['What happened?'])}
+      ${detailSection("Student's Perspective", r['What do you think needs to happen to resolve this situation?'])}
+
+      <div class="followup-panel">
+        <div class="followup-title">⚙️ Staff Follow-Up — Page 2</div>
+
+        ${!APPS_SCRIPT_URL ? `<div class="setup-notice">
+          <strong>⚠️ One-time setup needed to save follow-ups</strong>
+          Deploy the Apps Script Web App and paste the URL into APPS_SCRIPT_URL in this file. Until then, follow-ups save locally in this browser only.
+        </div>` : ''}
+
+        <div class="followup-grid">
+          <div class="followup-field">
+            <label>Status</label>
+            <select id="fu-status-${esc(ts)}">
+              <option value="open"${status==='open'?' selected':''}>🔴 Open</option>
+              <option value="progress"${status==='progress'?' selected':''}>🟡 In Progress</option>
+              <option value="closed"${status==='closed'?' selected':''}>🟢 Closed</option>
+            </select>
+          </div>
+          <div class="followup-field">
+            <label>Assign To</label>
+            <select id="fu-assign-${esc(ts)}">
+              <option value="">Select…</option>
+              <option${fu.assignedTo==='Mr. Schuck'?' selected':''}>Mr. Schuck</option>
+              <option${fu.assignedTo==='Counselor'?' selected':''}>Counselor</option>
+              <option${fu.assignedTo==='Ms. Judge'?' selected':''}>Ms. Judge</option>
+              <option${fu.assignedTo==='Secretary'?' selected':''}>Secretary</option>
+              <option${fu.assignedTo==='Other Staff'?' selected':''}>Other Staff</option>
+            </select>
+          </div>
+          <div class="followup-field">
+            <label>Follow-Up Adult</label>
+            <input type="text" id="fu-adult-${esc(ts)}" value="${savedAdult}" placeholder="Staff name">
+          </div>
+          <div class="followup-field">
+            <label>Meeting Date</label>
+            <input type="date" id="fu-meetdate-${esc(ts)}" value="${savedDate}">
+          </div>
+          <div class="followup-field">
+            <label>Logged in PS</label>
+            <select id="fu-ps-${esc(ts)}">
+              <option value="">—</option>
+              <option${savedPS==='Yes'?' selected':''}>Yes</option>
+              <option${savedPS==='No'?' selected':''}>No</option>
+            </select>
+          </div>
+          <div class="followup-field">
+            <label>SRO Contacted</label>
+            <select id="fu-sro-${esc(ts)}">
+              <option value="">—</option>
+              <option${savedSRO==='Yes'?' selected':''}>Yes</option>
+              <option${savedSRO==='No'?' selected':''}>No</option>
+            </select>
+          </div>
+          <div class="followup-field">
+            <label>Parent Contacted</label>
+            <select id="fu-parent-${esc(ts)}">
+              <option value="">—</option>
+              <option${savedParent==='Yes'?' selected':''}>Yes</option>
+              <option${savedParent==='No'?' selected':''}>No</option>
+            </select>
+          </div>
+          <div class="followup-field">
+            <label>Contact Method</label>
+            <select id="fu-contact-${esc(ts)}">
+              <option value="">—</option>
+              <option${savedContact==='Phone'?' selected':''}>Phone</option>
+              <option${savedContact==='Email'?' selected':''}>Email</option>
+              <option${savedContact==='In Person'?' selected':''}>In Person</option>
+              <option${savedContact==='Phone + Email'?' selected':''}>Phone + Email</option>
+              <option${savedContact==='None'?' selected':''}>None</option>
+            </select>
+          </div>
+          <div class="followup-field">
+            <label>Teachers Notified</label>
+            <select id="fu-teachers-${esc(ts)}">
+              <option value="">—</option>
+              <option${savedTeach==='Yes'?' selected':''}>Yes</option>
+              <option${savedTeach==='No'?' selected':''}>No</option>
+            </select>
+          </div>
+          <div class="followup-field full">
+            <label>Notes</label>
+            <textarea id="fu-notes-${esc(ts)}" rows="3" placeholder="Staff notes, outcome, next steps…">${savedNotes}</textarea>
+          </div>
+        </div>
+
+        <div class="followup-btns">
+          <button class="btn-save" onclick="saveFollowUp('${esc(ts)}', false)">Save Update</button>
+          ${status !== 'closed' ? `<button class="btn-close" onclick="saveFollowUp('${esc(ts)}', true)">✓ Close Out</button>` : ''}
+        </div>
+        <div class="save-toast" id="toast-${esc(ts)}">✓ Saved</div>
+        <div class="save-error" id="err-${esc(ts)}"></div>
+      </div>
+    </div>` : ''}
+  </div>`;
+}
+
+function detailSection(label, val) {
+  const empty = !val || val.trim() === '' || val.trim().toLowerCase() === 'none';
+  return `<div class="detail-section">
+    <div class="detail-label">${label}</div>
+    <div class="detail-text${empty?' empty':''}">${empty ? 'Not provided' : esc(val)}</div>
+  </div>`;
+}
+
+// ── TOGGLE EXPAND ──────────────────────────────────────────────────────
+function toggleCard(ts) {
+  expandedId = expandedId === ts ? null : ts;
+  renderReports();
+  if (expandedId) {
+    setTimeout(() => {
+      const el = document.getElementById('card-' + ts);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+  }
+}
+
+// ── SAVE FOLLOW-UP ────────────────────────────────────────────────────
+async function saveFollowUp(ts, closeOut) {
+  const get = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+
+  const status     = closeOut ? 'closed' : get(`fu-status-${ts}`);
+  const assignedTo = get(`fu-assign-${ts}`);
+  const adult      = get(`fu-adult-${ts}`);
+  const meetDate   = get(`fu-meetdate-${ts}`);
+  const ps         = get(`fu-ps-${ts}`);
+  const sro        = get(`fu-sro-${ts}`);
+  const parent     = get(`fu-parent-${ts}`);
+  const contact    = get(`fu-contact-${ts}`);
+  const teachers   = get(`fu-teachers-${ts}`);
+  const notes      = get(`fu-notes-${ts}`);
+  const closedAt   = closeOut ? new Date().toLocaleString() : (followUpData[ts]?.closedAt || '');
+
+  // Save locally always
+  followUpData[ts] = { status, assignedTo, adult, meetDate, ps, sro, parent, contact, teachers, notes, closedAt };
+  saveLocalFollowUps();
+
+  // If Apps Script URL is set, also push to Google Sheet
+  if (APPS_SCRIPT_URL) {
+    try {
+      const r = allReports.find(r => r['Timestamp'] === ts) || {};
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          timestamp: ts,
+          studentName: (r['First Name']||'') + ' ' + (r['Last Name']||''),
+          studentId: r['800 Number (Student ID)'] || '',
+          grade: r['Grade'] || '',
+          status, assignedTo, adult, meetDate, ps, sro, parent, contact, teachers, notes, closedAt
+        })
+      });
+    } catch(e) {
+      console.warn('Sheet sync failed (local save succeeded):', e);
+    }
+  }
+
+  // Show toast then re-render
+  const toast = document.getElementById(`toast-${ts}`);
+  if (toast) { toast.classList.add('visible'); }
+  setTimeout(() => { renderReports(); }, 700);
+}
+
+// ── UTILS ──────────────────────────────────────────────────────────────
+function esc(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Auto-refresh every 2 minutes
+setInterval(() => { if (sessionStorage.getItem('ems_followup_auth')==='1') loadReports(); }, 120000);
+</script>
+</body>
+</html>
