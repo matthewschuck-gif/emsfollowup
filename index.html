@@ -419,14 +419,7 @@ function renderCard(r) {
           </div>
           <div class="followup-field">
             <label>Assign To</label>
-            <select id="fu-assign-${esc(ts)}">
-              <option value="">Select…</option>
-              <option${fu.assignedTo==='Mr. Schuck'?' selected':''}>Mr. Schuck</option>
-              <option${fu.assignedTo==='Counselor'?' selected':''}>Counselor</option>
-              <option${fu.assignedTo==='Ms. Judge'?' selected':''}>Ms. Judge</option>
-              <option${fu.assignedTo==='Secretary'?' selected':''}>Secretary</option>
-              <option${fu.assignedTo==='Other Staff'?' selected':''}>Other Staff</option>
-            </select>
+            <input type="text" id="fu-assign-${esc(ts)}" value="${esc(fu.assignedTo||'')}" placeholder="Staff name">
           </div>
           <div class="followup-field">
             <label>Follow-Up Adult</label>
