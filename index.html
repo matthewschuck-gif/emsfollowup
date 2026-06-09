@@ -257,7 +257,7 @@ async function loadReports() {
 
   loadLocalFollowUps();
 
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+  const url = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQbPOz47ladnz8ren2xDITio-wlGgxunD-JlA9SUdFqvxItcnq1lZauGLv2DvI6zo2Fls3RlDMalvmb/pub?gid=1322901423&single=true&output=csv`;
 
   try {
     const res = await fetch(url);
