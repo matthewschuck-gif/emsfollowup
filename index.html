@@ -214,12 +214,15 @@
 const STAFF_PW    = 'togetherweclimb';
 const SHEET_ID    = '1VUDvmkqG6F7-1PQWWc3_FWQxGz6bj_tBRdi4UuAWqP0';
 const SHEET_NAME  = 'Form Responses 1';
-// Apps Script Web App URL — paste after deploying (see setup note below)
+// Apps Script Web App URL. This is now a real two-way sync point:
+//   GET  -> returns every staff member's saved follow-up data (shared)
+//   POST -> upserts one follow-up row, keyed by timestamp
+// See followup-backend.gs for the script this URL must point to.
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbymTPWbhuu2-e6moza2mFuCudUULunHhKXDq6-ftLtz-7jndNQze5Ra3I1wEJLOWsNftw/exec';
 
 // ── STATE ────────────────────────────────────────────────────────────
 let allReports  = [];
-let followUpData = {}; // keyed by timestamp, stored in localStorage
+let followUpData = {}; // keyed by timestamp — local cache, synced with the shared sheet
 let currentFilter = 'open';
 let expandedId    = null;
 
@@ -241,7 +244,7 @@ if (sessionStorage.getItem('ems_followup_auth') === '1') {
   loadReports();
 }
 
-// ── LOAD FOLLOW-UP DATA FROM LOCALSTORAGE ───────────────────────────
+// ── LOCAL FOLLOW-UP CACHE (offline fallback only — sheet is the source of truth) ──
 function loadLocalFollowUps() {
   try { followUpData = JSON.parse(localStorage.getItem('ems_followups') || '{}'); }
   catch(e) { followUpData = {}; }
@@ -250,26 +253,45 @@ function saveLocalFollowUps() {
   localStorage.setItem('ems_followups', JSON.stringify(followUpData));
 }
 
-// ── LOAD FROM GOOGLE SHEET (published CSV) ───────────────────────────
+// ── LOAD FROM GOOGLE SHEET (published CSV) + SHARED FOLLOW-UP DATA ───
 async function loadReports() {
   document.getElementById('reportsList').innerHTML =
     '<div class="loading-state"><div class="loading-spin"></div>Loading reports…</div>';
 
-  loadLocalFollowUps();
+  loadLocalFollowUps(); // seed from local cache first, in case the network calls below fail
 
-  const url = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQbPOz47ladnz8ren2xDITio-wlGgxunD-JlA9SUdFqvxItcnq1lZauGLv2DvI6zo2Fls3RlDMalvmb/pub?gid=1322901423&single=true&output=csv`;
+  const csvUrl = `https://docs.google.com/spreadsheets/d/e/2PACX-1vQbPOz47ladnz8ren2xDITio-wlGgxunD-JlA9SUdFqvxItcnq1lZauGLv2DvI6zo2Fls3RlDMalvmb/pub?gid=1322901423&single=true&output=csv`;
 
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Sheet not accessible');
-    const csv  = await res.text();
+  const [csvResult, followUpResult] = await Promise.allSettled([
+    fetch(csvUrl),
+    APPS_SCRIPT_URL ? fetch(APPS_SCRIPT_URL) : Promise.reject(new Error('APPS_SCRIPT_URL not set'))
+  ]);
+
+  if (csvResult.status === 'fulfilled' && csvResult.value.ok) {
+    const csv = await csvResult.value.text();
     allReports = parseCSV(csv);
-    updateStats();
-    renderReports();
-  } catch(err) {
+  } else {
     document.getElementById('reportsList').innerHTML =
       '<div class="empty-state"><div>⚠️</div><p>Could not load sheet.<br><small>Make sure the sheet is published: File → Share → Publish to web → Sheet 1 → CSV → Publish</small></p></div>';
+    return;
   }
+
+  if (followUpResult.status === 'fulfilled' && followUpResult.value.ok) {
+    try {
+      const remote = await followUpResult.value.json();
+      // Remote (shared) data wins over whatever's cached locally, so every
+      // staff member converges on the same statuses.
+      followUpData = { ...followUpData, ...remote };
+      saveLocalFollowUps();
+    } catch (e) {
+      console.warn('Follow-up sheet returned something unexpected, using local cache:', e);
+    }
+  } else {
+    console.warn('Could not reach the follow-up sheet — showing local cache only. Other staff\'s updates may be missing until this succeeds.');
+  }
+
+  updateStats();
+  renderReports();
 }
 
 // ── CSV PARSER ────────────────────────────────────────────────────────
@@ -322,8 +344,33 @@ function setFilter(btn, filter) {
   renderReports();
 }
 
+// Grab whatever's currently typed/selected in the expanded card's follow-up
+// fields, so a re-render (auto-refresh, search, manual refresh) doesn't
+// wipe out notes that haven't been saved yet.
+const DRAFT_FIELD_IDS = ['status','assign','adult','meetdate','ps','sro','parent','contact','teachers','notes'];
+
+function captureExpandedDraft() {
+  if (!expandedId) return null;
+  const ts = expandedId;
+  const draft = {};
+  DRAFT_FIELD_IDS.forEach(f => {
+    const el = document.getElementById(`fu-${f}-${ts}`);
+    if (el) draft[f] = el.value;
+  });
+  return { ts, draft };
+}
+
+function restoreExpandedDraft(saved) {
+  if (!saved || expandedId !== saved.ts) return;
+  Object.keys(saved.draft).forEach(f => {
+    const el = document.getElementById(`fu-${f}-${saved.ts}`);
+    if (el) el.value = saved.draft[f];
+  });
+}
+
 function renderReports() {
   const search = (document.getElementById('searchInput').value || '').toLowerCase();
+  const draft = captureExpandedDraft();
 
   let filtered = allReports.filter(r => {
     const status = getStatus(r['Timestamp']);
@@ -347,6 +394,7 @@ function renderReports() {
 
   list.innerHTML = filtered.map(r => renderCard(r)).join('');
   updateStats();
+  restoreExpandedDraft(draft);
 }
 
 // ── RENDER CARD ────────────────────────────────────────────────────────
@@ -525,32 +573,44 @@ async function saveFollowUp(ts, closeOut) {
   const notes      = get(`fu-notes-${ts}`);
   const closedAt   = closeOut ? new Date().toLocaleString() : (followUpData[ts]?.closedAt || '');
 
-  // Save locally always
-  followUpData[ts] = { status, assignedTo, adult, meetDate, ps, sro, parent, contact, teachers, notes, closedAt };
+  const r = allReports.find(r => r['Timestamp'] === ts) || {};
+  const payload = {
+    timestamp: ts,
+    studentName: (r['First Name']||'') + ' ' + (r['Last Name']||''),
+    studentId: r['800 Number (Student ID)'] || '',
+    grade: r['Grade'] || '',
+    status, assignedTo, adult, meetDate, ps, sro, parent, contact, teachers, notes, closedAt
+  };
+
+  // Save locally right away so the UI feels instant and still works offline.
+  followUpData[ts] = payload;
   saveLocalFollowUps();
 
-  // If Apps Script URL is set, also push to Google Sheet
+  const errEl = document.getElementById(`err-${ts}`);
+  if (errEl) errEl.classList.remove('visible');
+
+  // Push to the shared sheet so every other staff member's dashboard picks
+  // this up on their next load/refresh.
   if (APPS_SCRIPT_URL) {
     try {
-      const r = allReports.find(r => r['Timestamp'] === ts) || {};
-      await fetch(APPS_SCRIPT_URL, {
+      const res = await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          timestamp: ts,
-          studentName: (r['First Name']||'') + ' ' + (r['Last Name']||''),
-          studentId: r['800 Number (Student ID)'] || '',
-          grade: r['Grade'] || '',
-          status, assignedTo, adult, meetDate, ps, sro, parent, contact, teachers, notes, closedAt
-        })
+        // text/plain avoids a CORS preflight to Apps Script (which doesn't
+        // handle OPTIONS by default) while still letting us read the reply.
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
       });
-    } catch(e) {
-      console.warn('Sheet sync failed (local save succeeded):', e);
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error || 'Unknown error from Apps Script');
+    } catch (e) {
+      console.warn('Sheet sync failed (saved locally on this device only):', e);
+      if (errEl) {
+        errEl.textContent = '⚠ Saved on this device, but sync to the shared sheet failed — other staff won\u2019t see this yet.';
+        errEl.classList.add('visible');
+      }
     }
   }
 
-  // Show toast then re-render
   const toast = document.getElementById(`toast-${ts}`);
   if (toast) { toast.classList.add('visible'); }
   setTimeout(() => { renderReports(); }, 700);
@@ -561,8 +621,14 @@ function esc(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-// Auto-refresh every 2 minutes
-setInterval(() => { if (sessionStorage.getItem('ems_followup_auth')==='1') loadReports(); }, 120000);
+// Auto-refresh every 2 minutes — also picks up other staff's status changes.
+// Skipped while a card is expanded so it never interrupts someone mid-note;
+// it'll resume as soon as they collapse the card.
+setInterval(() => {
+  if (sessionStorage.getItem('ems_followup_auth') !== '1') return;
+  if (expandedId) return;
+  loadReports();
+}, 120000);
 </script>
 </body>
 </html>
