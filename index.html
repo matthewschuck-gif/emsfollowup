@@ -253,6 +253,48 @@ function saveLocalFollowUps() {
   localStorage.setItem('ems_followups', JSON.stringify(followUpData));
 }
 
+// ── JSONP LOADER ──────────────────────────────────────────────────────
+// Apps Script exec URLs don't send Access-Control-Allow-Origin, so a plain
+// cross-origin fetch() can't read the response even though the request
+// itself succeeds. A <script>-tag JSONP load sidesteps CORS entirely.
+function fetchFollowUpsJSONP(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = 'emsFollowupCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    const script = document.createElement('script');
+    let settled = false;
+
+    function cleanup() {
+      delete window[cbName];
+      script.remove();
+      clearTimeout(timer);
+    }
+
+    window[cbName] = (data) => {
+      if (settled) return;
+      settled = true;
+      resolve(data);
+      cleanup();
+    };
+
+    script.onerror = () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('JSONP request to Apps Script failed to load'));
+      cleanup();
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('JSONP request to Apps Script timed out'));
+      cleanup();
+    }, 10000);
+
+    script.src = `${url}?callback=${cbName}&_=${Date.now()}`;
+    document.head.appendChild(script);
+  });
+}
+
 // ── LOAD FROM GOOGLE SHEET (published CSV) + SHARED FOLLOW-UP DATA ───
 async function loadReports() {
   document.getElementById('reportsList').innerHTML =
@@ -264,7 +306,7 @@ async function loadReports() {
 
   const [csvResult, followUpResult] = await Promise.allSettled([
     fetch(csvUrl),
-    APPS_SCRIPT_URL ? fetch(APPS_SCRIPT_URL) : Promise.reject(new Error('APPS_SCRIPT_URL not set'))
+    APPS_SCRIPT_URL ? fetchFollowUpsJSONP(APPS_SCRIPT_URL) : Promise.reject(new Error('APPS_SCRIPT_URL not set'))
   ]);
 
   if (csvResult.status === 'fulfilled' && csvResult.value.ok) {
@@ -276,18 +318,13 @@ async function loadReports() {
     return;
   }
 
-  if (followUpResult.status === 'fulfilled' && followUpResult.value.ok) {
-    try {
-      const remote = await followUpResult.value.json();
-      // Remote (shared) data wins over whatever's cached locally, so every
-      // staff member converges on the same statuses.
-      followUpData = { ...followUpData, ...remote };
-      saveLocalFollowUps();
-    } catch (e) {
-      console.warn('Follow-up sheet returned something unexpected, using local cache:', e);
-    }
+  if (followUpResult.status === 'fulfilled' && followUpResult.value && !followUpResult.value.error) {
+    // Remote (shared) data wins over whatever's cached locally, so every
+    // staff member converges on the same statuses.
+    followUpData = { ...followUpData, ...followUpResult.value };
+    saveLocalFollowUps();
   } else {
-    console.warn('Could not reach the follow-up sheet — showing local cache only. Other staff\'s updates may be missing until this succeeds.');
+    console.warn('Could not reach the follow-up sheet — showing local cache only. Other staff\'s updates may be missing until this succeeds.', followUpResult.reason || followUpResult.value);
   }
 
   updateStats();
@@ -590,22 +627,22 @@ async function saveFollowUp(ts, closeOut) {
   if (errEl) errEl.classList.remove('visible');
 
   // Push to the shared sheet so every other staff member's dashboard picks
-  // this up on their next load/refresh.
+  // this up on their next load/refresh. Apps Script doesn't send back
+  // Access-Control-Allow-Origin, so we can't reliably read a confirmation
+  // from here — no-cors sends the write without erroring on that (the
+  // sheet itself is the source of truth for whether it landed).
   if (APPS_SCRIPT_URL) {
     try {
-      const res = await fetch(APPS_SCRIPT_URL, {
+      await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
-        // text/plain avoids a CORS preflight to Apps Script (which doesn't
-        // handle OPTIONS by default) while still letting us read the reply.
+        mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
       });
-      const result = await res.json();
-      if (!result.success) throw new Error(result.error || 'Unknown error from Apps Script');
     } catch (e) {
-      console.warn('Sheet sync failed (saved locally on this device only):', e);
+      console.warn('Sheet sync request failed to send (saved locally on this device only):', e);
       if (errEl) {
-        errEl.textContent = '⚠ Saved on this device, but sync to the shared sheet failed — other staff won\u2019t see this yet.';
+        errEl.textContent = '⚠ Saved on this device, but couldn\u2019t reach the shared sheet — other staff won\u2019t see this yet.';
         errEl.classList.add('visible');
       }
     }
