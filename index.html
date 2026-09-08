@@ -244,10 +244,25 @@ if (sessionStorage.getItem('ems_followup_auth') === '1') {
   loadReports();
 }
 
+// ── TIMESTAMP NORMALIZATION ─────────────────────────────────────────────
+// The incident CSV and the Staff Follow-Up sheet can end up representing
+// the same submission's timestamp as different-looking strings (Google
+// Sheets silently converts a date-looking string into a real Date cell,
+// which then reads back out in JS's verbose Date.toString() format instead
+// of the original CSV format). Comparing by the actual moment in time
+// instead of exact text makes lookups immune to that.
+function normalizeTs(raw) {
+  const t = new Date(raw).getTime();
+  return Number.isNaN(t) ? String(raw).trim() : t;
+}
+
 // ── LOCAL FOLLOW-UP CACHE (offline fallback only — sheet is the source of truth) ──
 function loadLocalFollowUps() {
-  try { followUpData = JSON.parse(localStorage.getItem('ems_followups') || '{}'); }
-  catch(e) { followUpData = {}; }
+  let raw = {};
+  try { raw = JSON.parse(localStorage.getItem('ems_followups') || '{}'); }
+  catch(e) { raw = {}; }
+  followUpData = {};
+  Object.keys(raw).forEach(k => { followUpData[normalizeTs(k)] = raw[k]; });
 }
 function saveLocalFollowUps() {
   localStorage.setItem('ems_followups', JSON.stringify(followUpData));
@@ -320,8 +335,13 @@ async function loadReports() {
 
   if (followUpResult.status === 'fulfilled' && followUpResult.value && !followUpResult.value.error) {
     // Remote (shared) data wins over whatever's cached locally, so every
-    // staff member converges on the same statuses.
-    followUpData = { ...followUpData, ...followUpResult.value };
+    // staff member converges on the same statuses. Re-key by normalized
+    // timestamp so it lines up with allReports regardless of how the sheet
+    // happened to serialize each cell.
+    const remoteRaw = followUpResult.value;
+    const remoteNormalized = {};
+    Object.keys(remoteRaw).forEach(k => { remoteNormalized[normalizeTs(k)] = remoteRaw[k]; });
+    followUpData = { ...followUpData, ...remoteNormalized };
     saveLocalFollowUps();
   } else {
     console.warn('Could not reach the follow-up sheet — showing local cache only. Other staff\'s updates may be missing until this succeeds.', followUpResult.reason || followUpResult.value);
@@ -362,7 +382,10 @@ function parseCSVLine(line) {
 }
 
 // ── STATUS HELPERS ────────────────────────────────────────────────────
-function getStatus(ts) { return (followUpData[ts] && followUpData[ts].status) || 'open'; }
+function getStatus(ts) {
+  const fu = followUpData[normalizeTs(ts)];
+  return (fu && fu.status) || 'open';
+}
 
 function updateStats() {
   const statuses = allReports.map(r => getStatus(r['Timestamp']));
@@ -437,7 +460,7 @@ function renderReports() {
 // ── RENDER CARD ────────────────────────────────────────────────────────
 function renderCard(r) {
   const ts       = r['Timestamp'] || '';
-  const fu       = followUpData[ts] || {};
+  const fu       = followUpData[normalizeTs(ts)] || {};
   const status   = fu.status || 'open';
   const isExp    = expandedId === ts;
   const name     = (r['First Name'] || '') + ' ' + (r['Last Name'] || '');
@@ -608,7 +631,7 @@ async function saveFollowUp(ts, closeOut) {
   const contact    = get(`fu-contact-${ts}`);
   const teachers   = get(`fu-teachers-${ts}`);
   const notes      = get(`fu-notes-${ts}`);
-  const closedAt   = closeOut ? new Date().toLocaleString() : (followUpData[ts]?.closedAt || '');
+  const closedAt   = closeOut ? new Date().toLocaleString() : (followUpData[normalizeTs(ts)]?.closedAt || '');
 
   const r = allReports.find(r => r['Timestamp'] === ts) || {};
   const payload = {
@@ -620,7 +643,7 @@ async function saveFollowUp(ts, closeOut) {
   };
 
   // Save locally right away so the UI feels instant and still works offline.
-  followUpData[ts] = payload;
+  followUpData[normalizeTs(ts)] = payload;
   saveLocalFollowUps();
 
   const errEl = document.getElementById(`err-${ts}`);
