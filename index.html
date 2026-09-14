@@ -326,6 +326,7 @@ let followUpData = {}; // keyed by timestamp — local cache, synced with the sh
 let streamlinedLocal = {}; // in-person reports keyed by timestamp — local cache, synced with the shared sheet
 let currentFilter = 'open';
 let expandedId    = null;
+let streamlinedModalOpen = false; // true while the in-person report form is open and unsaved
 
 // ── AUTH ─────────────────────────────────────────────────────────────
 function login() {
@@ -820,10 +821,12 @@ function openStreamlinedModal() {
   document.getElementById('sl-meetdate').value = new Date().toISOString().slice(0, 10);
   document.getElementById('sl-err').classList.remove('visible');
   document.getElementById('streamlinedModal').classList.add('visible');
+  streamlinedModalOpen = true;
 }
 
 function closeStreamlinedModal() {
   document.getElementById('streamlinedModal').classList.remove('visible');
+  streamlinedModalOpen = false;
 }
 
 async function submitStreamlined() {
@@ -932,13 +935,24 @@ function esc(str) {
 }
 
 // Auto-refresh every 2 minutes — also picks up other staff's status changes.
-// Skipped while a card is expanded so it never interrupts someone mid-note;
-// it'll resume as soon as they collapse the card.
+// Skipped while a card is expanded, or the in-person report form is open, so
+// it never interrupts someone mid-note or mid-form; it resumes as soon as
+// they collapse the card / close the form.
 setInterval(() => {
   if (sessionStorage.getItem('ems_followup_auth') !== '1') return;
   if (expandedId) return;
+  if (streamlinedModalOpen) return;
   loadReports();
 }, 120000);
+
+// Warn before leaving the page (accidental reload, back button, tab close)
+// while the in-person report form is open — nothing in it is saved until
+// "Save Report" is clicked, so navigating away would silently lose it.
+window.addEventListener('beforeunload', (e) => {
+  if (!streamlinedModalOpen) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 </script>
 </body>
 </html>
