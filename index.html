@@ -151,6 +151,23 @@
   .setup-notice { background: var(--amber-light); border: 1.5px solid var(--amber); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 12px; font-size: 13px; color: #92400e; line-height: 1.5; }
   .setup-notice strong { display: block; margin-bottom: 4px; font-size: 13px; }
 
+  /* GROUPING (month / week sections in Closed & All views) */
+  .group-section { margin-bottom: 14px; }
+  .group-header { display: flex; align-items: center; gap: 8px; padding: 10px 4px; cursor: pointer; user-select: none; }
+  .group-chevron { font-size: 11px; color: var(--gray-400); transition: transform .2s; flex-shrink: 0; }
+  .group-chevron.open { transform: rotate(90deg); }
+  .group-label { font-size: 14px; font-weight: 800; color: var(--purple); flex: 1; }
+  .group-count { font-size: 12px; font-weight: 700; color: var(--gray-400); background: var(--gray-200); border-radius: 10px; padding: 1px 9px; }
+  .group-body { padding-left: 4px; }
+
+  .week-section { margin-bottom: 8px; }
+  .week-header { display: flex; align-items: center; gap: 7px; padding: 8px 4px; margin-left: 8px; border-left: 2px solid var(--gray-200); padding-left: 12px; cursor: pointer; user-select: none; }
+  .week-chevron { font-size: 10px; color: var(--gray-400); transition: transform .2s; flex-shrink: 0; }
+  .week-chevron.open { transform: rotate(90deg); }
+  .week-label { font-size: 12px; font-weight: 700; color: var(--gray-600); flex: 1; }
+  .week-count { font-size: 11px; font-weight: 600; color: var(--gray-400); }
+  .week-body { margin-left: 8px; padding-left: 12px; border-left: 2px solid var(--gray-100); }
+
   /* SOURCE BADGE */
   .source-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--purple-mid); background: var(--purple-light); border-radius: 8px; padding: 2px 7px; text-transform: uppercase; letter-spacing: .4px; }
 
@@ -327,6 +344,8 @@ let streamlinedLocal = {}; // in-person reports keyed by timestamp — local cac
 let currentFilter = 'open';
 let expandedId    = null;
 let streamlinedModalOpen = false; // true while the in-person report form is open and unsaved
+let collapsedGroups = new Set(); // month/week group keys the user has collapsed, for the grouped Closed/All views
+let groupsSeeded = false; // true once we've defaulted older months to collapsed on first grouped render
 
 // ── AUTH ─────────────────────────────────────────────────────────────
 function login() {
@@ -580,9 +599,96 @@ function renderReports() {
     return;
   }
 
-  list.innerHTML = filtered.map(r => renderCard(r)).join('');
+  // Closed/All views can accumulate a long history over time, so they're
+  // grouped by month → week to stay scannable. Open/In Progress stay flat
+  // since those need to read as an immediate action list. A search in
+  // progress always flattens everything so matches are never hidden behind
+  // a collapsed group.
+  const shouldGroup = !search && (currentFilter === 'closed' || currentFilter === 'all');
+  list.innerHTML = shouldGroup ? renderGroupedReports(filtered) : filtered.map(r => renderCard(r)).join('');
+
   updateStats();
   restoreExpandedDraft(draft);
+}
+
+// ── GROUPED (MONTH → WEEK) RENDERING ────────────────────────────────────
+function getWeekStart(d) {
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = date.getDay(); // 0 = Sun ... 6 = Sat
+  date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day)); // back up to Monday
+  return date;
+}
+
+function toggleGroup(key) {
+  if (collapsedGroups.has(key)) collapsedGroups.delete(key);
+  else collapsedGroups.add(key);
+  renderReports();
+}
+
+function renderGroupedReports(filtered) {
+  // filtered is already newest-first, so Map insertion order alone gives
+  // us newest-month-first and, within it, newest-week-first.
+  const months = new Map();
+  filtered.forEach(r => {
+    const d = new Date(r['Timestamp']);
+    const valid = !isNaN(d);
+    const monthKey   = valid ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'unknown';
+    const monthLabel = valid ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Unknown Date';
+    if (!months.has(monthKey)) months.set(monthKey, { label: monthLabel, weeks: new Map() });
+
+    const weekStart  = valid ? getWeekStart(d) : null;
+    const weekKey     = weekStart ? weekStart.toISOString().slice(0, 10) : 'unknown';
+    const weekLabel   = weekStart ? `Week of ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Unknown Date';
+    const monthGroup = months.get(monthKey);
+    if (!monthGroup.weeks.has(weekKey)) monthGroup.weeks.set(weekKey, { label: weekLabel, items: [] });
+    monthGroup.weeks.get(weekKey).items.push(r);
+  });
+
+  // First time a grouped view is ever rendered, default to only the most
+  // recent month expanded so the page doesn't open as one giant wall.
+  if (!groupsSeeded) {
+    let first = true;
+    months.forEach((_, monthKey) => {
+      if (!first) collapsedGroups.add(`month:${monthKey}`);
+      first = false;
+    });
+    groupsSeeded = true;
+  }
+
+  let html = '';
+  months.forEach((monthGroup, monthKey) => {
+    const monthGroupKey = `month:${monthKey}`;
+    const monthOpen = !collapsedGroups.has(monthGroupKey);
+    const monthTotal = Array.from(monthGroup.weeks.values()).reduce((sum, w) => sum + w.items.length, 0);
+
+    html += `<div class="group-section">
+      <div class="group-header" onclick="toggleGroup('${monthGroupKey}')">
+        <span class="group-chevron${monthOpen ? ' open' : ''}">▸</span>
+        <span class="group-label">${esc(monthGroup.label)}</span>
+        <span class="group-count">${monthTotal}</span>
+      </div>`;
+
+    if (monthOpen) {
+      html += `<div class="group-body">`;
+      monthGroup.weeks.forEach((weekGroup, weekKey) => {
+        const weekGroupKey = `week:${monthKey}:${weekKey}`;
+        const weekOpen = !collapsedGroups.has(weekGroupKey);
+        html += `<div class="week-section">
+          <div class="week-header" onclick="toggleGroup('${weekGroupKey}')">
+            <span class="week-chevron${weekOpen ? ' open' : ''}">▸</span>
+            <span class="week-label">${esc(weekGroup.label)}</span>
+            <span class="week-count">${weekGroup.items.length}</span>
+          </div>
+          ${weekOpen ? `<div class="week-body">${weekGroup.items.map(r => renderCard(r)).join('')}</div>` : ''}
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+  });
+
+  return html;
 }
 
 // ── RENDER CARD ────────────────────────────────────────────────────────
