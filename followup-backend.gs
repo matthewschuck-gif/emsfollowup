@@ -77,6 +77,20 @@ function respond_(obj, callback) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// Meeting Date is entered as a plain "yyyy-MM-dd" string from an
+// <input type="date">. If a cell ever ends up holding a real Date value
+// (Sheets can auto-convert a date-looking string on entry) it comes back
+// from getValues() as a JS Date at midnight in the spreadsheet's timezone.
+// Serializing that straight to JSON converts it to UTC, which can shift it
+// onto the previous calendar day once a US timezone reads it back — the
+// classic "date is off by one" bug. Reformatting it with the spreadsheet's
+// own timezone here guarantees the calendar date never drifts, and heals
+// any cell that was already converted before this fix existed.
+function normalizeMeetDate_(raw, tz) {
+  if (raw instanceof Date) return Utilities.formatDate(raw, tz, 'yyyy-MM-dd');
+  return raw || '';
+}
+
 function readAllFollowUps() {
   var ss    = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName(TAB_NAME);
@@ -86,6 +100,8 @@ function readAllFollowUps() {
 
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return result;
+
+  var tz = ss.getSpreadsheetTimeZone();
 
   // Column order written by writeFollowUp():
   // 1 Submission Timestamp, 2 Student 800#, 3 Student Name, 4 Grade,
@@ -105,7 +121,7 @@ function readAllFollowUps() {
       grade:        row[3]  || '',
       assignedTo:   row[5]  || '',
       adult:        row[6]  || '',
-      meetDate:     row[7]  || '',
+      meetDate:     normalizeMeetDate_(row[7], tz),
       notes:        row[8]  || '',
       ps:           row[9]  || '',
       sro:          row[10] || '',
@@ -183,6 +199,15 @@ function writeFollowUp(data) {
     data.closedAt    || '',
     now
   ];
+
+  // Force the Meeting Date cell to plain text BEFORE writing to it, so
+  // Sheets never gets the chance to auto-convert the "yyyy-MM-dd" string
+  // into a real Date value (see normalizeMeetDate_ above for why that
+  // causes an off-by-one). Must happen before setValues/appendRow — setting
+  // the format afterward doesn't undo an auto-conversion that already
+  // happened during the write.
+  var targetRow = existRow > 0 ? existRow : lastRow + 1;
+  sheet.getRange(targetRow, 8).setNumberFormat('@');
 
   if (existRow > 0) {
     // Update existing row
