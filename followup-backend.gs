@@ -23,6 +23,12 @@ var SHEET_ID            = '1VUDvmkqG6F7-1PQWWc3_FWQxGz6bj_tBRdi4UuAWqP0';
 var TAB_NAME             = 'Staff Follow-Up';
 var STREAMLINED_TAB_NAME = 'Staff-Entered Reports';
 
+// Staff emails to notify whenever a new in-person ("+") report is saved.
+// Same team/format as ALERT_EMAIL in form-trigger.gs (the script bound to
+// the incident report Form) -- edit this comma-separated list directly to
+// add or remove addresses, and keep both lists in sync.
+var ALERT_EMAIL = 'Christopher_Montagna@easdpa.org, Kevin_Kuhn@easdpa.org, J_Lugar@easdpa.org, Kristin_Mincarelli@easdpa.org, A_Mowbray@easdpa.org, Matthew_schuck@easdpa.org, K_Wagner@easdpa.org, Kelly_Rigg@easdpa.org, Sara_Judge@easdpa.org, Lindsey_Carr@easdpa.org, Nicole_Zimmerman@easdpa.org, Donna_Schlinkman@easdpa.org, Kristin_Mincarelli@easdpa.org,matthew_schuck@easdpa.org';
+
 // Handle POST from dashboard
 function doPost(e) {
   try {
@@ -224,7 +230,17 @@ function createStreamlined(data) {
       '800 Number (Student ID)', 'Where did it happen?', 'When did it happen?',
       'Who was involved?', 'Who witnessed it?', 'Is there any evidence?',
       'What happened?', "What do you think needs to happen to resolve this situation?",
-      'Entered By'
+      'Entered By',
+      // ── BULLYING/CYBERBULLYING BRANCH (PSBA 249-AR-1) ──
+      'Believed to be Bullying?', 'Complainant/Reporter Name', 'Complainant Home Address',
+      'Complainant Phone Number', 'School Building', 'Date of Alleged Incident(s)',
+      "Alleged Offender(s)", 'If Directed at Someone Else, Identify Them',
+      'Statements Made (threats/requests/demands)', 'Type of Bullying',
+      'Cyber: Platform/App/Method Used', 'Cyber: Device Used', 'Cyber: Username(s)/Account(s) Involved',
+      'Cyber: During or Outside School Hours', 'Cyber: Date/Time of Online Activity', 'Cyber: Evidence Saved',
+      'In-Person: Specific Location', 'In-Person: During or Outside School Hours',
+      'In-Person: Physical, Verbal, or Both', 'In-Person: Injuries/Physical Contact',
+      'Certified True and Complete'
     ];
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length)
@@ -249,7 +265,28 @@ function createStreamlined(data) {
     data.evidence     || '',
     data.whatHappened || '',
     data.resolution   || '',
-    data.enteredBy    || ''
+    data.enteredBy    || '',
+    data.bullyFlag         || '',
+    data.bullyReporterName    || '',
+    data.bullyReporterAddress || '',
+    data.bullyReporterPhone   || '',
+    data.bullySchool          || '',
+    data.bullyIncidentDate    || '',
+    data.bullyOffenders       || '',
+    data.bullyTargetOther     || '',
+    data.bullyStatements      || '',
+    data.bullyType             || '',
+    data.cyberPlatform    || '',
+    data.cyberDevice      || '',
+    data.cyberAccounts    || '',
+    data.cyberHours       || '',
+    data.cyberWhen        || '',
+    data.cyberEvidence    || '',
+    data.inpersonLocation || '',
+    data.inpersonHours    || '',
+    data.inpersonNature   || '',
+    data.inpersonInjury   || '',
+    data.bullyCertify ? 'Yes' : ''
   ];
   sheet.appendRow(rowData);
 
@@ -271,7 +308,101 @@ function createStreamlined(data) {
     closedAt:    data.closedAt || ''
   });
 
+  notifyStreamlinedReport_(data, ts);
+
   return ts;
+}
+
+// Emails ALERT_EMAIL whenever a staff member saves a new in-person report.
+// Mirrors the look of onIncidentSubmit()'s alert in the incident-form
+// creator script. A failed send never blocks the report from saving.
+function notifyStreamlinedReport_(data, ts) {
+  if (!ALERT_EMAIL) return;
+  try {
+    var firstName = data.firstName || '—';
+    var lastName  = data.lastName  || '—';
+    var grade     = data.grade     || '—';
+    var isBullying = data.bullyFlag === 'Yes';
+
+    var submittedAt = Utilities.formatDate(new Date(ts), Session.getScriptTimeZone(), 'MMMM d, yyyy \'at\' h:mm a');
+
+    var subject = (isBullying ? '⚠️ Bullying/Cyberbullying — ' : '🧑‍🤝‍🧑 In-Person Report — ')
+      + firstName + ' ' + lastName + ' (' + grade + ' grade)';
+
+    var body =
+      'A staff member entered an in-person report at ' + submittedAt + '.\n\n' +
+      '══════════════════════════════════════\n' +
+      'STUDENT INFORMATION\n' +
+      '══════════════════════════════════════\n' +
+      '800 Number:    ' + (data.studentId || '—') + '\n' +
+      'Name:          ' + firstName + ' ' + lastName + '\n' +
+      'Grade:         ' + grade + '\n' +
+      'Homeroom:      ' + (data.homeroom || '—') + '\n' +
+      'Entered by:    ' + (data.enteredBy || '—') + '\n\n' +
+      '══════════════════════════════════════\n' +
+      'INCIDENT DETAILS\n' +
+      '══════════════════════════════════════\n' +
+      'Where:         ' + (data.where || '—') + '\n' +
+      'When:          ' + (data.when  || '—') + '\n\n' +
+      'What happened:\n' + (data.whatHappened || '—') + '\n\n' +
+      (isBullying ?
+        '══════════════════════════════════════\n' +
+        'BULLYING/CYBERBULLYING REPORT (249-AR-1)\n' +
+        '══════════════════════════════════════\n' +
+        'Type:               ' + (data.bullyType || '—') + '\n' +
+        'Reporter:            ' + (data.bullyReporterName || '—') + '\n' +
+        'Alleged offender(s): ' + (data.bullyOffenders || '—') + '\n' +
+        'School building:     ' + (data.bullySchool || '—') + '\n' +
+        'Date of incident:    ' + (data.bullyIncidentDate || '—') + '\n\n'
+        : '') +
+      '══════════════════════════════════════\n' +
+      'STAFF FOLLOW-UP\n' +
+      '══════════════════════════════════════\n' +
+      'Status: ' + (data.status || 'open') + '\n\n' +
+      'This report is logged in the EMS Incident Follow-Up sheet.\n';
+
+    var htmlBody =
+      '<div style="font-family:Arial,sans-serif;max-width:600px;color:#1a1a1a;">' +
+      '<div style="background:#490e6f;padding:16px 20px;border-radius:8px 8px 0 0;">' +
+        '<h2 style="color:#ffe100;margin:0;font-size:18px;">' + (isBullying ? '⚠️ Bullying/Cyberbullying Report' : '🧑‍🤝‍🧑 In-Person Report') + '</h2>' +
+        '<p style="color:rgba(255,255,255,.7);margin:4px 0 0;font-size:13px;">Ephrata Middle School · ' + submittedAt + '</p>' +
+      '</div>' +
+      '<div style="background:#f3edf8;padding:14px 20px;border-left:4px solid #490e6f;">' +
+        '<p style="margin:0;font-size:15px;font-weight:700;">' + firstName + ' ' + lastName + '</p>' +
+        '<p style="margin:2px 0 0;font-size:13px;color:#52525b;">' + grade + ' grade &nbsp;·&nbsp; 800#: ' + (data.studentId || '—') + ' &nbsp;·&nbsp; Entered by ' + (data.enteredBy || '—') + '</p>' +
+      '</div>' +
+      '<div style="padding:16px 20px;background:#fff;border:1px solid #e4e4e7;">' +
+        '<table style="width:100%;border-collapse:collapse;font-size:14px;">' +
+          '<tr><td style="padding:4px 0;color:#52525b;width:80px;vertical-align:top;">Where</td><td style="padding:4px 0;font-weight:600;">' + (data.where || '—') + '</td></tr>' +
+          '<tr><td style="padding:4px 0;color:#52525b;vertical-align:top;">When</td><td style="padding:4px 0;">' + (data.when || '—') + '</td></tr>' +
+        '</table>' +
+        '<div style="margin-top:12px;">' +
+          '<p style="font-size:12px;font-weight:700;text-transform:uppercase;color:#490e6f;margin:0 0 4px;">What Happened</p>' +
+          '<p style="margin:0;font-size:14px;background:#fafafa;padding:8px 10px;border-radius:6px;border:1px solid #e4e4e7;">' + (data.whatHappened || '—').replace(/\n/g,'<br>') + '</p>' +
+        '</div>' +
+      '</div>' +
+      (isBullying ?
+      '<div style="padding:14px 20px;background:#fee2e2;border:1px solid #e4e4e7;border-top:none;">' +
+        '<p style="font-size:12px;font-weight:700;text-transform:uppercase;color:#b91c1c;margin:0 0 6px;">⚠ Flagged as Possible Bullying — ' + (data.bullyType || 'Type not specified') + '</p>' +
+        '<p style="font-size:13px;margin:0;color:#52525b;">Alleged offender(s): ' + (data.bullyOffenders || '—') + ' &nbsp;·&nbsp; School: ' + (data.bullySchool || '—') + '</p>' +
+      '</div>' : '') +
+      '<div style="padding:14px 20px;background:#fef3c7;border:1px solid #e4e4e7;border-top:none;border-radius:0 0 8px 8px;">' +
+        '<p style="font-size:12px;font-weight:700;text-transform:uppercase;color:#d97706;margin:0 0 6px;">⚡ Staff Follow-Up</p>' +
+        '<p style="font-size:13px;margin:0;color:#52525b;">Status: ' + (data.status || 'open') + '. Open the dashboard for full details.</p>' +
+      '</div>' +
+      '</div>';
+
+    MailApp.sendEmail({
+      to: ALERT_EMAIL,
+      subject: subject,
+      body: body,
+      htmlBody: htmlBody,
+      name: 'EMS Incident Report System',
+      replyTo: 'matthew_schuck@easdpa.org'
+    });
+  } catch (err) {
+    // Don't let an email failure block the report from saving.
+  }
 }
 
 function readStreamlinedReports() {
@@ -284,7 +415,7 @@ function readStreamlinedReports() {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return results;
 
-  var rows = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+  var rows = sheet.getRange(2, 1, lastRow - 1, 35).getValues();
 
   rows.forEach(function(row) {
     var ts = String(row[0] || '').trim();
@@ -303,7 +434,29 @@ function readStreamlinedReports() {
       'Is there any evidence?':   row[10] || '',
       'What happened?':           row[11] || '',
       "What do you think needs to happen to resolve this situation?": row[12] || '',
-      'Entered By':                row[13] || ''
+      'Entered By':                row[13] || '',
+      // ── BULLYING/CYBERBULLYING BRANCH ──
+      'Believed to be Bullying?':              row[14] || '',
+      'Complainant/Reporter Name':             row[15] || '',
+      'Complainant Home Address':              row[16] || '',
+      'Complainant Phone Number':              row[17] || '',
+      'School Building':                       row[18] || '',
+      'Date of Alleged Incident(s)':           row[19] || '',
+      'Alleged Offender(s)':                   row[20] || '',
+      'If Directed at Someone Else, Identify Them': row[21] || '',
+      'Statements Made (threats/requests/demands)': row[22] || '',
+      'Type of Bullying':                      row[23] || '',
+      'Cyber: Platform/App/Method Used':       row[24] || '',
+      'Cyber: Device Used':                    row[25] || '',
+      'Cyber: Username(s)/Account(s) Involved': row[26] || '',
+      'Cyber: During or Outside School Hours': row[27] || '',
+      'Cyber: Date/Time of Online Activity':   row[28] || '',
+      'Cyber: Evidence Saved':                 row[29] || '',
+      'In-Person: Specific Location':          row[30] || '',
+      'In-Person: During or Outside School Hours': row[31] || '',
+      'In-Person: Physical, Verbal, or Both':  row[32] || '',
+      'In-Person: Injuries/Physical Contact':  row[33] || '',
+      'Certified True and Complete':           row[34] || ''
     });
   });
 
