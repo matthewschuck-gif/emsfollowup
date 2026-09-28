@@ -902,6 +902,10 @@ function renderCard(r) {
           <button class="btn-save" onclick="saveFollowUp('${esc(ts)}', false)">Save Update</button>
           ${status !== 'closed' ? `<button class="btn-close" onclick="saveFollowUp('${esc(ts)}', true)">✓ Close Out</button>` : ''}
         </div>
+        <div class="followup-btns" style="margin-top:8px;">
+          <button class="btn-save" style="background:var(--gray-600);" onclick="resendReportEmail('${esc(ts)}')">✉️ Resend Email</button>
+          <button class="btn-save" style="background:var(--purple-mid);" onclick="downloadReportPDF('${esc(ts)}')">📄 Get PDF</button>
+        </div>
         <div class="save-toast" id="toast-${esc(ts)}">✓ Saved</div>
         <div class="save-error" id="err-${esc(ts)}"></div>
       </div>
@@ -1243,6 +1247,110 @@ async function submitStreamlined() {
       console.warn('In-person report failed to sync to the shared sheet (saved locally on this device only):', e);
     }
   }
+}
+
+// ── RESEND EMAIL ───────────────────────────────────────────────────────
+// Re-sends the same styled HTML email this report would have generated
+// automatically, in case the original send never arrived. See
+// sendReportEmail_() in followup-backend.gs for the template. Uses the
+// same fire-and-forget no-cors POST pattern as saveFollowUp() — Apps
+// Script doesn't send back Access-Control-Allow-Origin, so we can't read
+// a real confirmation, but the request itself does land.
+async function resendReportEmail(ts) {
+  if (!APPS_SCRIPT_URL) {
+    alert('Apps Script URL not configured — cannot send email from here.');
+    return;
+  }
+  const r  = allReports.find(x => x['Timestamp'] === ts) || {};
+  const fu = followUpData[normalizeTs(ts)] || {};
+  const toastEl = document.getElementById(`toast-${ts}`);
+  const errEl   = document.getElementById(`err-${ts}`);
+  if (errEl) errEl.classList.remove('visible');
+
+  try {
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'resendReport', timestamp: ts, report: r, followUp: fu })
+    });
+    if (toastEl) {
+      toastEl.textContent = '✓ Email resent';
+      toastEl.classList.add('visible');
+      setTimeout(() => { toastEl.classList.remove('visible'); toastEl.textContent = '✓ Saved'; }, 2500);
+    }
+  } catch (e) {
+    console.warn('Resend email request failed to send:', e);
+    if (errEl) {
+      errEl.textContent = '⚠ Could not reach the server to resend the email.';
+      errEl.classList.add('visible');
+    }
+  }
+}
+
+// ── PRINTABLE / PDF REPORT ────────────────────────────────────────────
+// Opens a clean, print-ready version of one report in a new tab and
+// triggers the browser's print dialog — choosing "Save as PDF" there
+// produces a PDF straight from the page. Entirely client-side: no server
+// round-trip, so it works even when email delivery is unreliable.
+function downloadReportPDF(ts) {
+  const r  = allReports.find(x => x['Timestamp'] === ts) || {};
+  const fu = followUpData[normalizeTs(ts)] || {};
+  const name = `${r['First Name']||''} ${r['Last Name']||''}`.trim() || 'Report';
+  const date = r['Timestamp']
+    ? new Date(r['Timestamp']).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
+  const isBullying = r['Believed to be Bullying?'] === 'Yes' || r[STUDENT_BULLYING_QUESTION] === 'Yes';
+
+  const rowsHtml = pairs => pairs
+    .filter(([, v]) => v)
+    .map(([l, v]) => `<tr><td class="pl">${esc(l)}</td><td>${esc(v).replace(/\n/g, '<br>')}</td></tr>`)
+    .join('');
+
+  const detailRows = rowsHtml([
+    ['Where', r['Where did it happen?']],
+    ['When', r['When did it happen?']],
+    ['Who was involved', r['Who was involved?']],
+    ['Witnesses', r['Who witnessed it?']],
+    ['Evidence', r['Is there any evidence?']],
+    ['What happened', r['What happened?']],
+    ["Student's perspective", r['What do you think needs to happen to resolve this situation?']]
+  ]);
+
+  const fuRows = rowsHtml([
+    ['Status', fu.status], ['Assigned To', fu.assignedTo], ['Follow-Up Adult', fu.adult],
+    ['Meeting Date', fu.meetDate], ['Logged in PS', fu.ps], ['SRO Contacted', fu.sro],
+    ['Parent Contacted', fu.parent], ['Contact Method', fu.contact],
+    ['Teachers Notified', fu.teachers], ['Notes', fu.notes]
+  ]);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(name)} — Incident Report</title>
+<style>
+  body{font-family:Arial,sans-serif;color:#1a1a1a;max-width:680px;margin:24px auto;padding:0 16px;}
+  h1{font-size:19px;color:#490e6f;margin:0 0 2px;}
+  .meta{font-size:13px;color:#52525b;margin-bottom:18px;}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#490e6f;border-bottom:2px solid #490e6f;padding-bottom:4px;margin:22px 0 8px;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  td{padding:6px 8px;vertical-align:top;border-bottom:1px solid #eee;}
+  td.pl{color:#52525b;width:160px;font-weight:600;white-space:nowrap;}
+  .bully{background:#fee2e2;border:1px solid #f5c2c2;border-radius:6px;padding:10px 14px;font-size:13px;color:#b91c1c;font-weight:700;margin:18px 0;}
+  @media print { body{margin:0;padding:12px;} }
+</style></head><body>
+  <h1>${esc(name)}</h1>
+  <div class="meta">Grade ${esc(r['Grade']||'—')} &nbsp;·&nbsp; 800#: ${esc(r['800 Number (Student ID)']||'—')} &nbsp;·&nbsp; Submitted ${esc(date)}</div>
+  ${isBullying ? `<div class="bully">⚠ Flagged as possible bullying/cyberbullying</div>` : ''}
+  <h2>Incident Details</h2>
+  <table>${detailRows || '<tr><td>No details recorded.</td></tr>'}</table>
+  <h2>Staff Follow-Up</h2>
+  <table>${fuRows || '<tr><td>No follow-up recorded yet.</td></tr>'}</table>
+</body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { alert('Please allow pop-ups for this site to generate a PDF.'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => { try { win.focus(); win.print(); } catch (e) {} }, 300);
 }
 
 // ── UTILS ──────────────────────────────────────────────────────────────

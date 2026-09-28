@@ -39,6 +39,12 @@ function doPost(e) {
         .createTextOutput(JSON.stringify({ success: true, timestamp: ts }))
         .setMimeType(ContentService.MimeType.JSON);
     }
+    if (data.action === 'resendReport') {
+      sendReportEmail_(data);
+      return ContentService
+        .createTextOutput(JSON.stringify({ success: true }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     writeFollowUp(data);
     return ContentService
       .createTextOutput(JSON.stringify({ success: true }))
@@ -403,6 +409,97 @@ function notifyStreamlinedReport_(data, ts) {
   } catch (err) {
     // Don't let an email failure block the report from saving.
   }
+}
+
+// ── RESEND / MANUAL REPORT EMAIL ────────────────────────────────────────
+// Lets staff re-send the same styled HTML email a report would have
+// generated automatically (from the incident form or a streamlined
+// in-person entry), for the case where the original send never arrived.
+// Triggered from the dashboard's "Resend Email" button on a report card —
+// see resendReportEmail() in index.html. data.report is whatever fields
+// the dashboard already has for that row (the same shape parseCSV()/
+// createStreamlined() produce); data.followUp is the Staff Follow-Up
+// panel data for that same timestamp. data.to optionally overrides
+// ALERT_EMAIL with a single address the staff member wants a copy sent to.
+function sendReportEmail_(data) {
+  var report   = data.report || {};
+  var followUp = data.followUp || {};
+  var to       = (data.to && String(data.to).trim()) || ALERT_EMAIL;
+  if (!to) return;
+
+  var firstName = report['First Name'] || '';
+  var lastName  = report['Last Name']  || '';
+  var grade     = report['Grade']      || '—';
+  var isBullying =
+    report['Believed to be Bullying?'] === 'Yes' ||
+    report['Based on this definition, do you believe what you are reporting is bullying or cyberbullying?'] === 'Yes';
+
+  var tsDate = data.timestamp ? new Date(data.timestamp) : new Date();
+  var submittedAt = Utilities.formatDate(tsDate, Session.getScriptTimeZone(), 'MMMM d, yyyy \'at\' h:mm a');
+
+  var subject = (isBullying ? '⚠️ [Resent] Bullying/Cyberbullying Report — ' : '📋 [Resent] Incident Report — ')
+    + (firstName || lastName ? (firstName + ' ' + lastName) : 'Report') + ' (' + grade + ' grade)';
+
+  function row_(label, val) {
+    if (!val) return '';
+    return '<tr><td style="padding:4px 10px 4px 0;color:#52525b;font-size:13px;vertical-align:top;white-space:nowrap;">' + label + '</td>' +
+           '<td style="padding:4px 0;font-size:13px;">' + String(val).replace(/\n/g, '<br>') + '</td></tr>';
+  }
+
+  var detailRows =
+    row_('Where', report['Where did it happen?']) +
+    row_('When', report['When did it happen?']) +
+    row_('Who was involved', report['Who was involved?']) +
+    row_('Witnesses', report['Who witnessed it?']) +
+    row_('Evidence', report['Is there any evidence?']) +
+    row_('What happened', report['What happened?']) +
+    row_("Student's perspective", report['What do you think needs to happen to resolve this situation?']);
+
+  var followUpRows =
+    row_('Status', followUp.status) +
+    row_('Assigned To', followUp.assignedTo) +
+    row_('Follow-Up Adult', followUp.adult) +
+    row_('Meeting Date', followUp.meetDate) +
+    row_('Logged in PS', followUp.ps) +
+    row_('SRO Contacted', followUp.sro) +
+    row_('Parent Contacted', followUp.parent) +
+    row_('Contact Method', followUp.contact) +
+    row_('Teachers Notified', followUp.teachers) +
+    row_('Notes', followUp.notes);
+
+  var htmlBody =
+    '<div style="font-family:Arial,sans-serif;max-width:600px;color:#1a1a1a;">' +
+    '<div style="background:#490e6f;padding:16px 20px;border-radius:8px 8px 0 0;">' +
+      '<h2 style="color:#ffe100;margin:0;font-size:18px;">' + (isBullying ? '⚠️ Bullying/Cyberbullying Report (Resent)' : '📋 Incident Report (Resent)') + '</h2>' +
+      '<p style="color:rgba(255,255,255,.7);margin:4px 0 0;font-size:13px;">Ephrata Middle School · Originally submitted ' + submittedAt + '</p>' +
+    '</div>' +
+    '<div style="background:#f3edf8;padding:14px 20px;border-left:4px solid #490e6f;">' +
+      '<p style="margin:0;font-size:15px;font-weight:700;">' + (firstName + ' ' + lastName).trim() + '</p>' +
+      '<p style="margin:2px 0 0;font-size:13px;color:#52525b;">' + grade + ' grade &nbsp;·&nbsp; 800#: ' + (report['800 Number (Student ID)'] || '—') + '</p>' +
+    '</div>' +
+    '<div style="padding:16px 20px;background:#fff;border:1px solid #e4e4e7;">' +
+      '<table style="width:100%;border-collapse:collapse;">' + (detailRows || '<tr><td style="font-size:13px;color:#52525b;">No incident details recorded.</td></tr>') + '</table>' +
+    '</div>' +
+    (isBullying ?
+    '<div style="padding:12px 20px;background:#fee2e2;border:1px solid #e4e4e7;border-top:none;">' +
+      '<p style="font-size:12px;font-weight:700;text-transform:uppercase;color:#b91c1c;margin:0;">⚠ Flagged as possible bullying/cyberbullying — see dashboard for full detail</p>' +
+    '</div>' : '') +
+    '<div style="padding:14px 20px;background:#fef3c7;border:1px solid #e4e4e7;border-top:none;border-radius:0 0 8px 8px;">' +
+      '<p style="font-size:12px;font-weight:700;text-transform:uppercase;color:#d97706;margin:0 0 8px;">⚡ Staff Follow-Up</p>' +
+      '<table style="width:100%;border-collapse:collapse;">' + (followUpRows || '<tr><td style="font-size:13px;color:#52525b;">No follow-up recorded yet.</td></tr>') + '</table>' +
+    '</div>' +
+    '<div style="padding:12px 20px;background:#490e6f;border-radius:0 0 8px 8px;text-align:center;">' +
+      '<a href="https://bit.ly/emsfollowup" style="color:#ffe100;font-size:13px;font-weight:700;text-decoration:none;">Open Follow-Up Dashboard → bit.ly/emsfollowup</a>' +
+    '</div>' +
+    '</div>';
+
+  MailApp.sendEmail({
+    to: to,
+    subject: subject,
+    htmlBody: htmlBody,
+    name: 'EMS Incident Report System',
+    replyTo: 'matthew_schuck@easdpa.org'
+  });
 }
 
 function readStreamlinedReports() {
